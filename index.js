@@ -12,6 +12,8 @@ try {
 }
 
 // Use express-session middleware
+const cookieParser = require('cookie-parser');
+app.use(cookieParser(process.env.SESSION_KEY));
 const session = require('express-session');
 app.use(session({
   secret: process.env.SESSION_KEY,
