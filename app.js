@@ -33,6 +33,10 @@ const bcrypt = require('bcrypt');
 const User = require('./models/user');
 
 
+app.get('/', (req, res) => {
+  res.json({ message: "Successfully Connected" })
+})
+
 // Registration endpoint
 app.post('/register', async (req, res) => {
   try {
