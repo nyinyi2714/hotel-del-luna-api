@@ -30,7 +30,7 @@ app.use(bodyParser.urlencoded({extended: false}))
 app.use(express.json())
 
 const bcrypt = require('bcrypt');
-const User = require('./models/user');
+const User = require('./models/User');
 
 
 app.get('/', (req, res) => {
