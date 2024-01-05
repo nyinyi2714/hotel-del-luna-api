@@ -11,16 +11,57 @@ try {
   console.error('MongoDB connection error:', error);
 }
 
-// Use express-session middleware
-const cookieParser = require('cookie-parser');
-app.use(cookieParser(process.env.SESSION_KEY));
-const session = require('express-session');
-app.use(session({
-  secret: process.env.SESSION_KEY,
-  resave: false,
-  saveUninitialized: true,
-}));
+const User = require('./models/User');
 
+// JWT Token for Auth
+const jwt = require('jsonwebtoken');
+const tokenBlacklist = new Set();
+
+// Middleware to authenticate requests
+const authenticateJWT = (req, res, next) => {
+  const token = req.header('Authorization');
+  if (!token) return res.sendStatus(401);
+
+  if (tokenBlacklist.has(token)) {
+    return res.sendStatus(401); // Token is blacklisted (logged out)
+  }
+
+  jwt.verify(token, process.env.SECRET_KEY, async (err, key) => {
+    if (err) return res.sendStatus(403);
+    try {
+      const user = await User.findById(key.userId);
+      if (!user) {
+        return res.sendStatus(404); // User not found
+      }
+
+      req.user = user;
+      next();
+    } catch (error) {
+      console.error('Error finding user:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+};
+
+// Cleanup function to remove expired tokens from the blacklist
+const cleanupBlacklist = () => {
+  const currentTimestamp = Math.floor(Date.now() / 1000);
+  tokenBlacklist.forEach((token) => {
+    try {
+      const decodedToken = jwt.decode(token);
+      if (decodedToken && decodedToken.exp && decodedToken.exp < currentTimestamp) {
+        tokenBlacklist.delete(token);
+      }
+    } catch (error) {
+      console.error('Error decoding token:', error);
+    }
+  });
+};
+
+// Run the cleanup function every day
+
+const cleanupIntervalInMilliseconds = 24 * 60 * 60 * 1000;
+setInterval(cleanupBlacklist, cleanupIntervalInMilliseconds);
 
 // Cors
 const cors = require('cors')
@@ -32,8 +73,6 @@ app.use(bodyParser.urlencoded({extended: false}))
 app.use(express.json())
 
 const bcrypt = require('bcrypt');
-const User = require('./models/User');
-
 
 app.get('/', (req, res) => {
   res.json({ message: "Successfully Connected" })
@@ -59,12 +98,10 @@ app.post('/register', async (req, res) => {
       password: hashedPassword,
     });
 
-    await user.save();
+    const savedUser = await user.save();
 
-    // Set a session variable to indicate the user is logged in
-    req.session.userId = user._id;
-
-    res.status(201).json({ message: 'User registered successfully' });
+    const token = jwt.sign({ userId: savedUser._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
+    res.status(200).json({ token });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Internal server error' });
@@ -86,42 +123,33 @@ app.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Set a session variable to indicate the user is logged in
+    // After successful authentication, generate a token
+    const token = jwt.sign({ userId: user._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
+    res.status(200).json({ token });
 
-    req.session.userId = user._id;
-		console.log(req.session.userId)
-    res.json({ message: 'Login successful' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Logout endpoint
+
+// Route to log out and invalidate the token
 app.post('/logout', (req, res) => {
-  // Destroy the session to log out the user
-  req.session.destroy((err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ message: 'Error logging out' });
-    }
-    res.json({ message: 'Logout successful' });
-  });
+  const token = req.header('Authorization');
+  if (token) {
+    tokenBlacklist.add(token); // Add the token to the blacklist
+  }
+  res.sendStatus(200);
 });
 
+
 // Check if the user is logged in
-app.get('/checkAuth', async (req, res) => {
-  try {
-    if (req.session.userId) {
-      const user = await User.findById(req.session.userId);
-      if (user) res.json({ authenticated: true, firstname: user.firstname });
-			else res.json({ authenticated: false });
-    } else {
-      res.json({ authenticated: false });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Internal server error' });
+app.get('/checkAuth', authenticateJWT, async (req, res) => {
+  if (req.user) {
+    res.json({ authenticated: true, user: req.user });
+  } else {
+    res.json({ authenticated: false });
   }
 });
 
@@ -148,5 +176,3 @@ app.get('/rooms/json', (req, res) => {
 })
 
 app.listen(PORT)
-
-module.exports = app
