@@ -15,15 +15,13 @@ const User = require('./models/User');
 
 // JWT Token for Auth
 const jwt = require('jsonwebtoken');
-const tokenBlacklist = new Set();
 
 // Middleware to authenticate requests
 const authenticateJWT = (req, res, next) => {
-  const token = req.header('Authorization');
-  if (!token) return res.sendStatus(401);
+  const token = req.cookies.token;
 
-  if (tokenBlacklist.has(token)) {
-    return res.sendStatus(401); // Token is blacklisted (logged out)
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   jwt.verify(token, process.env.SECRET_KEY, async (err, key) => {
@@ -43,26 +41,6 @@ const authenticateJWT = (req, res, next) => {
   });
 };
 
-// Cleanup function to remove expired tokens from the blacklist
-const cleanupBlacklist = () => {
-  const currentTimestamp = Math.floor(Date.now() / 1000);
-  tokenBlacklist.forEach((token) => {
-    try {
-      const decodedToken = jwt.decode(token);
-      if (decodedToken && decodedToken.exp && decodedToken.exp < currentTimestamp) {
-        tokenBlacklist.delete(token);
-      }
-    } catch (error) {
-      console.error('Error decoding token:', error);
-    }
-  });
-};
-
-// Run the cleanup function every day
-
-const cleanupIntervalInMilliseconds = 24 * 60 * 60 * 1000;
-setInterval(cleanupBlacklist, cleanupIntervalInMilliseconds);
-
 // Cors
 const cors = require('cors')
 app.use(cors({origin: "http://localhost:3000", credentials: true}))
@@ -73,6 +51,10 @@ app.use(bodyParser.urlencoded({extended: false}))
 app.use(express.json())
 
 const bcrypt = require('bcrypt');
+
+// httpOnly Cookie for JWT token
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 
 app.get('/', (req, res) => {
   res.json({ message: "Successfully Connected" })
@@ -101,7 +83,8 @@ app.post('/register', async (req, res) => {
     const savedUser = await user.save();
 
     const token = jwt.sign({ userId: savedUser._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
-    res.status(200).json({ token });
+    res.cookie('token', token, { httpOnly: true });
+    res.status(200).json({ success: true, token });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Internal server error' });
@@ -125,7 +108,8 @@ app.post('/login', async (req, res) => {
 
     // After successful authentication, generate a token
     const token = jwt.sign({ userId: user._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
-    res.status(200).json({ token });
+    res.cookie('token', token, { httpOnly: true });
+    res.status(200).json({ success: true, token });
 
   } catch (error) {
     console.error(error);
@@ -133,16 +117,11 @@ app.post('/login', async (req, res) => {
   }
 });
 
-
-// Route to log out and invalidate the token
-app.post('/logout', (req, res) => {
-  const token = req.header('Authorization');
-  if (token) {
-    tokenBlacklist.add(token); // Add the token to the blacklist
-  }
-  res.sendStatus(200);
+app.get('/logout', (req, res) => {
+  // Clear the token cookie by setting an expired date in the past
+  res.cookie('token', '', { expires: new Date(0), httpOnly: true });
+  res.status(200).json({ success: true, message: 'Logout successful' });
 });
-
 
 // Check if the user is logged in
 app.get('/checkAuth', authenticateJWT, async (req, res) => {
