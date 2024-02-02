@@ -43,7 +43,8 @@ const authenticateJWT = (req, res, next) => {
 
 // Cors
 const cors = require('cors')
-app.use(cors({origin: "http://localhost:3000", credentials: true}))
+const allowedOrigins = ["http://localhost:3000", "http://localhost:5173"];
+app.use(cors({origin: allowedOrigins, credentials: true}))
 
 // BodyParser
 const bodyParser = require('body-parser')	
@@ -152,6 +153,28 @@ app.get('/rooms/json', (req, res) => {
     }
   ]
   res.status(200).json(rooms);
+})
+
+app.use(express.raw({ type: 'application/octet-stream', limit: '30mb' }));
+app.post('/azure/vision', async (req, res) => {
+  const azureEndpoint = 'https://predicttrafficlight-prediction.cognitiveservices.azure.com/customvision/v3.0/Prediction/2a15b53b-e8d1-4159-a761-03fc7d00c324/detect/iterations/Iteration2/image';
+  try {
+    const azureResponse = await fetch(azureEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Prediction-Key': process.env.KEY,
+      },
+      body: req.body,
+    });
+
+    const result = await azureResponse.json();
+    console.log(result)
+    res.json(result);
+  } catch (error) {
+    console.error('Error forwarding image to Azure:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 })
 
 app.listen(PORT)
