@@ -43,7 +43,7 @@ const authenticateJWT = (req, res, next) => {
 
 // Cors
 const cors = require('cors')
-const allowedOrigins = ["http://localhost:3000", "http://localhost:5173"];
+const allowedOrigins = ["http://localhost:3000", "http://localhost:5173", "https://main.d3h5714ovsmoy5.amplifyapp.com", "https://main.d3io9td4i8n5mc.amplifyapp.com"];
 app.use(cors({origin: allowedOrigins, credentials: true}))
 
 // BodyParser
