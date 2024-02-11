@@ -150,7 +150,7 @@ app.get('/logout', async (req, res) => {
 
   try {
     // Insert the token into the MongoDB collection for blacklisted tokens
-    await BlacklistToken.create({ token: blacklistToken });
+    await BlacklistToken.create(blacklistToken);
 
     res.status(200).json({ success: true, message: 'Logout successful' });
   } catch (error) {
