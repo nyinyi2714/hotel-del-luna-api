@@ -88,7 +88,7 @@ app.post('/register', async (req, res) => {
     const savedUser = await user.save();
 
     const token = jwt.sign({ userId: savedUser._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
-    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'None'});
+    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'Lax'});
     res.status(200).json({ success: true, token });
   } catch (error) {
     console.error(error);
@@ -113,7 +113,7 @@ app.post('/login', async (req, res) => {
 
     // After successful authentication, generate a token
     const token = jwt.sign({ userId: user._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
-    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'None' });
+    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'Lax' });
     res.status(200).json({ success: true, token });
 
   } catch (error) {
