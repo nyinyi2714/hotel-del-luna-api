@@ -34,9 +34,6 @@ const bcrypt = require('bcrypt');
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 
-// Applying the middleware to the specified routes
-app.use(['/checkAuth', '/reservations', '/reservation/new', '/reservation/update', '/reservation/delete'], authenticateJWT);
-
 // Middleware to authenticate requests
 const authenticateJWT = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -78,6 +75,9 @@ const authenticateJWT = async (req, res, next) => {
     }
   });
 };
+
+// Applying the middleware to the specified routes
+app.use(['/checkAuth', '/reservations', '/reservation/new', '/reservation/update', '/reservation/delete'], authenticateJWT);
 
 app.get('/', (req, res) => {
   res.json({ message: "Successfully Connected" })
