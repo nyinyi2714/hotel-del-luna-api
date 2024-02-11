@@ -12,7 +12,8 @@ try {
 }
 
 const User = require('./models/User');
-const Reservation = require('./models/Reservation')
+const Reservation = require('./models/Reservation');
+const BlacklistToken = require('./models/BlackListToken');
 
 // JWT Token for Auth
 const jwt = require('jsonwebtoken');
@@ -33,18 +34,38 @@ const bcrypt = require('bcrypt');
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 
+// Applying the middleware to the specified routes
+app.use(['/checkAuth', '/reservations', '/reservation/new', '/reservation/update', '/reservation/delete'], authenticateJWT);
+
 // Middleware to authenticate requests
-const authenticateJWT = (req, res, next) => {
-  const token = req.cookies.token;
+const authenticateJWT = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const token = authHeader.split(' ')[1];
 
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+   // Check if the token is in the blacklist collection
+  const isBlacklisted = await BlacklistToken.findOne({ token });
+
+  if (isBlacklisted) {
+    return res.status(401).json({ error: 'Token has been revoked' });
+  }
+
   jwt.verify(token, process.env.SECRET_KEY, async (err, key) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      return res.sendStatus(403);
+    }
+
     try {
       const user = await User.findById(key.userId);
+
       if (!user) {
         return res.sendStatus(404); // User not found
       }
@@ -53,13 +74,10 @@ const authenticateJWT = (req, res, next) => {
       next();
     } catch (error) {
       console.error('Error finding user:', error);
-      res.status(500).json({ message: 'Internal server error' });
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 };
-
-// Applying the middleware to the specified routes
-app.use(['/checkAuth', '/reservations', '/reservation/new', '/reservation/update', '/reservation/delete'], authenticateJWT);
 
 app.get('/', (req, res) => {
   res.json({ message: "Successfully Connected" })
@@ -73,7 +91,7 @@ app.post('/register', async (req, res) => {
     // Check if the email already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: 'Email already exists' });
+      return res.status(400).json({ error: 'Email already exists' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -87,12 +105,11 @@ app.post('/register', async (req, res) => {
 
     const savedUser = await user.save();
 
-    const token = jwt.sign({ userId: savedUser._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
-    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'Lax'});
+    const token = jwt.sign({ userId: savedUser._id }, process.env.SECRET_KEY, { expiresIn: '24h' });
     res.status(200).json({ success: true, token });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -103,29 +120,43 @@ app.post('/login', async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // After successful authentication, generate a token
-    const token = jwt.sign({ userId: user._id }, process.env.SECRET_KEY, { expiresIn: '5h' });
-    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'Lax' });
+    const token = jwt.sign({ userId: user._id }, process.env.SECRET_KEY, { expiresIn: '24h' });
     res.status(200).json({ success: true, token });
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.get('/logout', (req, res) => {
-  // Clear the token cookie by setting an expired date in the past
-  res.cookie('token', '', { expires: new Date(0), httpOnly: true });
-  res.status(200).json({ success: true, message: 'Logout successful' });
+app.get('/logout', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const accessToken = authHeader ? authHeader.split(' ')[1] : null;
+
+  if (!accessToken) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
+
+  const blacklistToken = { token: accessToken, blacklistedAt: Date.now() };
+
+  try {
+    // Insert the token into the MongoDB collection for blacklisted tokens
+    await BlacklistToken.create({ token: blacklistToken });
+
+    res.status(200).json({ success: true, message: 'Logout successful' });
+  } catch (error) {
+    console.error('Error during logout:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
 });
 
 // Check if the user is logged in
