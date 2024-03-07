@@ -34,6 +34,10 @@ const bcrypt = require('bcrypt');
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 
+// Nodemailer
+const nodemailer = require('nodemailer');
+const EmailGenerator = require('./EmailGenerator');
+
 // Middleware to authenticate requests
 const authenticateJWT = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -218,19 +222,43 @@ function calculatePrice(checkinDate, checkoutDate, roomType) {
   return calculatedPrice;
 }
 
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  host: "smtp.gmail.com",
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASSWORD,
+  },
+});
+
+app.get('/subscribe', (req, res) => {
+
+  const mailOptions = {
+    from: {
+      name: 'Hotel Del Luna',
+      address: 'nyinyi2714@gmail.com',
+    },
+    to: "w6.htetnnm.connect@gmail.com",
+    subject: 'Reservation Confirmation',
+    html: EmailGenerator()
+  };
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.error(error);
+      res.status(500).send('Failed to subscribe. Please try again later.');
+    } else {
+      console.log('Email sent: ' + info.response);
+      res.send('Subscription successful! Check your email for confirmation.');
+    }
+  });
+});
+
 app.post('/reservation/new', async (req, res) => {
   if (!req.user) res.status(401).json({ error: 'Unauthorized' })
   const { checkinDate, checkoutDate, numOfGuests, roomType } = req.body
 
   let calculatedPrice = calculatePrice(checkinDate, checkoutDate, roomType)
-
-  console.log({
-    checkinDate: checkinDate,
-      checkoutDate: checkoutDate,
-      numOfGuests: numOfGuests,
-      roomType: roomType,
-      price: calculatedPrice,
-  })
 
   try {
     const newReservation = new Reservation({
@@ -246,6 +274,26 @@ app.post('/reservation/new', async (req, res) => {
     // Add the new reservation to the user's array of reservations
     req.user.reservations.push(newReservation._id);
     await req.user.save();
+
+    const mailOptions = {
+      from: {
+        name: 'Hotel Del Luna',
+        address: process.env.GMAIL_USER,
+      },
+      to: req.user.email,
+      subject: 'Reservation Confirmation',
+      html: EmailGenerator(req.user.firstname, newReservation._id, checkinDate, checkoutDate, roomType, numOfGuests, calculatedPrice)
+    };
+  
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error(error);
+        res.status(500).send('Failed to send email confirmation. Please try again later.');
+      } else {
+        console.log('Email sent: ' + info.response);
+        res.send('Booked successful! Check your email for confirmation.');
+      }
+    });
 
     res.status(200).json({ message: 'new reservation created successfully' })
 
